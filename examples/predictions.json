@@ -3,9 +3,9 @@
     "file": "test_image.png",
     "test_index": 0,
     "true_class": "cat",
-    "class_id": 5,
-    "class_name": "dog",
-    "confidence": 0.5134360194206238
+    "class_id": 3,
+    "class_name": "cat",
+    "confidence": 0.9259600043296814
   },
   {
     "file": "test_ship.png",
@@ -13,6 +13,6 @@
     "true_class": "ship",
     "class_id": 8,
     "class_name": "ship",
-    "confidence": 0.9787388443946838
+    "confidence": 0.4794689118862152
   }
 ]

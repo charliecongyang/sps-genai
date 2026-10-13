@@ -1,4 +1,4 @@
-"""CIFAR-10 classifier adapted from Module 4 Practical 3, EnhancedCNN."""
+"""CNN architecture specified in Assignment 2 and CIFAR-10 image inference."""
 
 from pathlib import Path
 
@@ -14,33 +14,34 @@ CLASSES = (
     "dog", "frog", "horse", "ship", "truck",
 )
 MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "cifar10_cnn.pt"
+IMAGE_SIZE = 64
 
 
-class EnhancedCNN(nn.Module):
-    """The four-convolution architecture used in the classroom practical."""
+def get_transform():
+    """Use the same 64 x 64 RGB preprocessing for training and inference."""
+    return transforms.Compose([
+        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+        transforms.ToTensor(),
+    ])
+
+
+class AssignmentCNN(nn.Module):
+    """Two convolution/pooling blocks followed by 100 and 10 output units."""
 
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(64)
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-        self.bn4 = nn.BatchNorm2d(128)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.fc1 = nn.Linear(128 * 2 * 2, 128)
-        self.dropout = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(128, 10)
+        # Two pooling layers reduce each spatial dimension: 64 -> 32 -> 16.
+        self.fc1 = nn.Linear(32 * 16 * 16, 100)
+        self.fc2 = nn.Linear(100, 10)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.bn1(self.conv1(x))))
-        x = self.pool(F.relu(self.bn2(self.conv2(x))))
-        x = self.pool(F.relu(self.bn3(self.conv3(x))))
-        x = self.pool(F.relu(self.bn4(self.conv4(x))))
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
         x = torch.flatten(x, 1)
-        x = self.dropout(F.relu(self.fc1(x)))
+        x = F.relu(self.fc1(x))
         return self.fc2(x)
 
 
@@ -55,16 +56,13 @@ class ImageClassifier:
         checkpoint = torch.load(model_path, map_location="cpu", weights_only=True)
         if tuple(checkpoint["classes"]) != CLASSES:
             raise ValueError("The saved class order does not match CIFAR-10.")
-        self.model = EnhancedCNN()
+        self.model = AssignmentCNN()
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.eval()
-        self.transform = transforms.Compose([
-            transforms.Resize((32, 32)),
-            transforms.ToTensor(),
-        ])
+        self.transform = get_transform()
 
     def predict(self, image: Image.Image) -> dict:
-        # ToTensor scales pixels to [0, 1], matching the training practical.
+        # Resize to the assignment's input size; ToTensor scales to [0, 1].
         inputs = self.transform(image.convert("RGB")).unsqueeze(0)
         with torch.inference_mode():
             probabilities = torch.softmax(self.model(inputs), dim=1)[0]

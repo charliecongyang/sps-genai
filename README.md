@@ -3,7 +3,8 @@
 This FastAPI application extends the Module 3 class activity with a word
 embedding endpoint adapted from the Module 2 spaCy practical. It also retains
 the original bigram text generation endpoint. Assignment 2 adds a CIFAR-10
-image classifier using the EnhancedCNN from Module 4 Practical 3.
+image classifier using the exact two-convolution architecture specified in
+the Assignment 2 PDF.
 
 ## Run with Docker
 
@@ -70,17 +71,21 @@ This is a classifier for these ten categories, so it always chooses one of
 them even when a submitted image belongs to a different category. Confidence
 is the model's score, not a guarantee that the prediction is correct.
 
-The included checkpoint achieves **72.93% test accuracy** after 10 epochs.
+The included checkpoint achieves **66.07% test accuracy** after 10 epochs
+(6,607 correct predictions out of 10,000 test images). The measured results
+and training history are recorded in `models/training_metrics.json`.
 Two fixed test examples and their actual predictions are recorded in
-`examples/predictions.json`. The first example, `test_image.png`, is labeled
-cat but this checkpoint predicts dog. This is a model error; successful HTTP
-inference does not imply every classification is correct. `test_ship.png`
-provides a second example. Retraining can change these results; the generated
+`examples/predictions.json`: `test_image.png` has the true label cat, and
+`test_ship.png` has the true label ship. A successful HTTP response does not
+guarantee a correct prediction. Retraining can change the results; the generated
 metrics and predictions files record each new run.
 
-Images are converted to RGB, resized to 32 by 32, and scaled to [0, 1] with
-`ToTensor`, matching the classroom data preprocessing. The API uses evaluation
-mode and CPU inference, and reuses the loaded model across requests.
+Images are converted to RGB, resized to 64 by 64, and scaled to [0, 1] with
+`ToTensor`. CIFAR-10 contains 32 by 32 images, so the training and test images
+are also resized to meet the assignment's 64 by 64 input requirement.
+Training and inference share `get_transform()` to keep preprocessing identical.
+The API uses evaluation mode and CPU inference, and reuses the loaded model
+across requests.
 
 Empty files return HTTP 400, files above 5 MiB or 20 megapixels return 413,
 and unreadable images return 422. If the weights are missing, image requests
@@ -88,21 +93,23 @@ return 503 with the training command. The Docker build requires the weights.
 
 #### CNN architecture
 
-All convolution layers use a 3 by 3 kernel, stride 1, and padding 1.
-Each is followed by BatchNorm, ReLU, and 2 by 2 max pooling with stride 2.
+The architecture follows Part 1 of the Assignment 2 PDF. Both convolution
+layers use a 3 by 3 kernel, stride 1, and padding 1. Each is followed by ReLU
+and 2 by 2 max pooling with stride 2. There are no BatchNorm or Dropout layers.
+The table uses PyTorch's channel-first order (channels x height x width).
 
 | Stage | Output per image |
 | --- | --- |
-| RGB input | 3 x 32 x 32 |
-| Conv1, BatchNorm, ReLU, MaxPool | 16 x 16 x 16 |
-| Conv2, BatchNorm, ReLU, MaxPool | 32 x 8 x 8 |
-| Conv3, BatchNorm, ReLU, MaxPool | 64 x 4 x 4 |
-| Conv4, BatchNorm, ReLU, MaxPool | 128 x 2 x 2 |
-| Flatten | 512 |
-| Linear, ReLU, Dropout (0.5) | 128 |
+| RGB input | 3 x 64 x 64 |
+| Conv1 (16 filters), ReLU | 16 x 64 x 64 |
+| MaxPool | 16 x 32 x 32 |
+| Conv2 (32 filters), ReLU | 32 x 32 x 32 |
+| MaxPool | 32 x 16 x 16 |
+| Flatten | 8192 |
+| Linear, ReLU | 100 |
 | Linear | 10 logits |
 
-The model has 164,874 trainable parameters. Training uses raw logits with
+The model has 825,398 trainable parameters. Training uses raw logits with
 `CrossEntropyLoss`; softmax is applied only when returning inference scores.
 
 #### Train or retrain
@@ -117,7 +124,8 @@ uv run python train_cnn.py
 The script downloads CIFAR-10 into `data/`, trains on its 50,000 training
 images for 10 epochs, and evaluates once on its 10,000 test images. It uses
 batch size 32, Adam with learning rate 0.0005, and random seed 42, following
-the classroom practical. Apple MPS or CUDA is selected when available,
+the classroom training settings with the architecture and input size from
+the assignment PDF. Apple MPS or CUDA is selected when available,
 otherwise training uses the CPU. Device and epoch count can be set explicitly:
 
 ```bash
@@ -180,7 +188,7 @@ word has no observed successor.
 | `app/main.py` | FastAPI routes, request/response schemas, and HTTP error handling. |
 | `app/embedding_model.py` | spaCy model loading, word validation, and vector extraction. |
 | `app/bigram_model.py` | Tokenization, bigram probabilities, and text sampling. |
-| `app/cnn_model.py` | Classroom EnhancedCNN architecture and image inference. |
+| `app/cnn_model.py` | AssignmentCNN architecture, shared preprocessing, and image inference. |
 | `train_cnn.py` | CIFAR-10 loading, model training, evaluation, and weight saving. |
 | `models/cifar10_cnn.pt` | Trained CNN weights and class order. |
 | `models/training_metrics.json` | Actual training history and test results. |
@@ -193,7 +201,8 @@ word has no observed successor.
 
 The algorithms are adapted from the Module 2 word sampling and word embeddings
 practicals and integrated with the Module 3 FastAPI class activity. The CNN
-architecture and training settings are adapted from Module 4 Practical 3.
+architecture follows the Assignment 2 PDF; training code and settings are
+adapted from Module 4 Practical 3.
 The Linux dependency configuration uses the
 [official uv PyTorch integration guide](https://docs.astral.sh/uv/guides/integration/pytorch/)
 to install CPU wheels for Docker, while macOS uses PyPI wheels.
@@ -204,7 +213,7 @@ After checking the Docker endpoint in your existing Git checkout:
 
 ```bash
 git add app train_cnn.py models examples pyproject.toml uv.lock Dockerfile README.md .gitignore .dockerignore
-git commit -m "Add classroom CNN image classification API"
+git commit -m "Match Assignment 2 CNN architecture and retrain model"
 git push
 ```
 

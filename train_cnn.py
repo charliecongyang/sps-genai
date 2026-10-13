@@ -1,4 +1,4 @@
-"""Train the classroom EnhancedCNN on CIFAR-10 and save it for the API."""
+"""Train the CNN specified in Assignment 2 on CIFAR-10 and save it for the API."""
 
 import argparse
 import json
@@ -7,12 +7,15 @@ import random
 import time
 
 import numpy as np
+from PIL import Image
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+from torchvision import datasets
 
-from app.cnn_model import CLASSES, MODEL_PATH, EnhancedCNN
+from app.cnn_model import (
+    CLASSES, IMAGE_SIZE, MODEL_PATH, AssignmentCNN, ImageClassifier, get_transform,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -90,14 +93,14 @@ def main():
     device = choose_device(args.device)
     print(f"Using device: {device}", flush=True)
 
-    # Same data and preprocessing as Module 4 Practical 3.
-    transform = transforms.ToTensor()
+    # CIFAR-10 is 32 x 32; the assignment requires resizing it to 64 x 64.
+    transform = get_transform()
     train_data = datasets.CIFAR10(ROOT / "data", train=True, download=True, transform=transform)
     test_data = datasets.CIFAR10(ROOT / "data", train=False, download=True, transform=transform)
     train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=False)
 
-    model = EnhancedCNN().to(device)
+    model = AssignmentCNN().to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.0005)
     history = train_model(model, train_loader, criterion, optimizer, device, args.epochs)
@@ -108,32 +111,31 @@ def main():
     torch.save({
         "model_state_dict": {name: value.cpu() for name, value in model.state_dict().items()},
         "classes": list(CLASSES),
+        "architecture": "AssignmentCNN",
+        "input_shape": [3, IMAGE_SIZE, IMAGE_SIZE],
         "epochs": args.epochs,
         "test_accuracy": test_accuracy,
     }, MODEL_PATH)
 
-    sample_image, sample_label = test_data[0]
     example_dir = ROOT / "examples"
     example_dir.mkdir(exist_ok=True)
-    transforms.ToPILImage()(sample_image).save(example_dir / "test_image.png")
-    ship_image, _ = test_data[1]
-    transforms.ToPILImage()(ship_image).save(example_dir / "test_ship.png")
+    classifier = ImageClassifier()
     examples = []
-    with torch.inference_mode():
-        for index, filename in [(0, "test_image.png"), (1, "test_ship.png")]:
-            image, label = test_data[index]
-            probabilities = model(image.unsqueeze(0).to(device)).softmax(dim=1)[0]
-            predicted = int(probabilities.argmax().item())
-            examples.append({
-                "file": filename, "test_index": index,
-                "true_class": CLASSES[label], "class_id": predicted,
-                "class_name": CLASSES[predicted],
-                "confidence": float(probabilities[predicted].item()),
-            })
+    for index, filename in [(0, "test_image.png"), (1, "test_ship.png")]:
+        # Save the original image, then use the exact API preprocessing path.
+        image = Image.fromarray(test_data.data[index])
+        image.save(example_dir / filename)
+        examples.append({
+            "file": filename, "test_index": index,
+            "true_class": CLASSES[test_data.targets[index]],
+            **classifier.predict(image),
+        })
     (example_dir / "predictions.json").write_text(json.dumps(examples, indent=2) + "\n")
     metrics = {
         "dataset": "CIFAR-10",
-        "model": "EnhancedCNN",
+        "model": "AssignmentCNN",
+        "input_shape": [3, IMAGE_SIZE, IMAGE_SIZE],
+        "preprocessing": "RGB, Resize(64, 64), ToTensor (pixels in [0, 1])",
         "seed": 42,
         "device": str(device),
         "torch_version": str(torch.__version__),
@@ -146,13 +148,13 @@ def main():
         "history": history,
         "test_loss": test_loss,
         "test_accuracy": test_accuracy,
-        "example_true_class": CLASSES[sample_label],
+        "example_true_class": CLASSES[test_data.targets[0]],
     }
     (MODEL_PATH.parent / "training_metrics.json").write_text(
         json.dumps(metrics, indent=2) + "\n", encoding="utf-8"
     )
     print(f"Saved weights: {MODEL_PATH}", flush=True)
-    print(f"Example image: examples/test_image.png (true class: {CLASSES[sample_label]})", flush=True)
+    print(f"Example predictions: {example_dir / 'predictions.json'}", flush=True)
 
 
 if __name__ == "__main__":
