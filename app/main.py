@@ -1,18 +1,20 @@
-"""Text generation, word embeddings, and Assignment 2 image classification."""
+"""Text generation, word embeddings, and image classification and generation."""
 
 from functools import lru_cache
 from io import BytesIO
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 
 from app.bigram_model import BigramModel
 from app.cnn_model import ImageClassifier
 from app.embedding_model import EmbeddingModel
+from app.gan_generator import GANImageGenerator
 
 
-app = FastAPI(title="Text Generation, Word Embedding and Image Classification API")
+app = FastAPI(title="Text, Embeddings, Image Classification and Generation API")
 
 corpus = [
     "The Count of Monte Cristo is a novel written by Alexandre Dumas. "
@@ -99,3 +101,49 @@ def classify_image(file: UploadFile = File(...)):
         return get_image_classifier().predict(image)
     except FileNotFoundError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+
+@lru_cache(maxsize=1)
+def get_gan_generator():
+    return GANImageGenerator()
+
+
+@app.get(
+    "/generate-image",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "A PNG grid of generated handwritten digits.",
+            "content": {"image/png": {}},
+        }
+    },
+)
+def generate_image(
+    num_images: int = Query(
+        default=16,
+        ge=1,
+        le=64,
+        description="Number of digit images to generate.",
+    ),
+    seed: int | None = Query(
+        default=None,
+        ge=0,
+        le=4294967295,
+        description="Optional random seed for repeatable results.",
+    ),
+):
+    """Generate a PNG grid of random handwritten digits."""
+    try:
+        image_bytes = get_gan_generator().generate(
+            num_images=num_images,
+            seed=seed,
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    return Response(
+        content=image_bytes,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )

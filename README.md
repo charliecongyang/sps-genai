@@ -1,4 +1,4 @@
-# Assignments 1 and 2: Text, Word Embedding and Image Classification API
+# Assignments 1-3: Text, Embeddings, Image Classification and Generation API
 
 This FastAPI application extends the Module 3 class activity with a word
 embedding endpoint adapted from the Module 2 spaCy practical. It also retains
@@ -51,6 +51,7 @@ The local server uses the same URLs as the Docker deployment.
 | GET | `/embedding?word=apple` | Return the complete word embedding. |
 | POST | `/generate` | Generate text using the sample corpus and bigram probabilities. |
 | POST | `/classify` | Upload an image and return its predicted CIFAR-10 class. |
+| GET | `/generate-image` | Generate a PNG grid of handwritten digits. |
 | GET | `/docs` | Open Swagger UI to try the endpoints. |
 
 ### Image classification (Assignment 2)
@@ -192,7 +193,7 @@ word has no observed successor.
 | `train_cnn.py` | CIFAR-10 loading, model training, evaluation, and weight saving. |
 | `models/cifar10_cnn.pt` | Trained CNN weights and class order. |
 | `models/training_metrics.json` | Actual training history and test results. |
-| `examples/` | Two CIFAR-10 test images with their labels and predictions. |
+| `examples/` | CIFAR-10 examples, predictions, and GAN sample grids. |
 | `pyproject.toml` | Project metadata and declared dependencies, including the spaCy model. |
 | `uv.lock` | Resolved dependencies used for installation. |
 | `Dockerfile` | Build the image and launch Uvicorn. |
@@ -220,3 +221,69 @@ git push
 Use the repository URL in your assignment submission so the instructor can
 clone it and follow the Docker commands above. Include the separate Part 3
 calculation answers as required by the assignment page.
+
+## Assignment 3: MNIST Image Generation
+
+This GAN follows the architecture specified in Assignment 3 and generates
+28 x 28 grayscale handwritten digits.
+
+### API
+
+Use GET /generate-image in Swagger UI at http://127.0.0.1:8000/docs.
+
+- num_images: number of images, from 1 to 64; default 16.
+- seed: optional integer from 0 to 4294967295 for repeatable sampling.
+- Successful response: HTTP 200 with Content-Type: image/png.
+- Invalid parameters return HTTP 422; missing model weights return HTTP 503.
+
+Example request:
+http://127.0.0.1:8000/generate-image?num_images=16&seed=42
+
+The model samples random digits without taking a digit label as input.
+Some generated digits may have distorted strokes.
+
+### Architecture
+
+Generator:
+100-dimensional noise -> Linear(6272) -> reshape to 128 x 7 x 7 ->
+ConvTranspose2d(128, 64) -> BatchNorm2d -> ReLU ->
+ConvTranspose2d(64, 1) -> Tanh.
+
+Discriminator:
+1 x 28 x 28 image -> Conv2d(1, 64) -> LeakyReLU(0.2) ->
+Conv2d(64, 128) -> BatchNorm2d -> LeakyReLU(0.2) ->
+Flatten -> Linear(6272, 1) -> Sigmoid.
+
+All convolution and transposed-convolution layers use kernel size 4,
+stride 2, and padding 1.
+
+### Training
+
+Run `uv run --locked python train_gan.py --epochs 20 --device auto`.
+
+The included model was trained on 60,000 MNIST training images for
+20 epochs using Apple MPS, batch size 128, and random seed 42.
+Training uses BCELoss and separate Adam optimizers with learning rate
+0.0002 and betas=(0.5, 0.999). Pixels are normalized to [-1, 1].
+
+Final average losses were D=0.3890 and G=2.9083.
+These are adversarial training losses, not classification accuracy.
+
+Each invocation starts a new training run. Restart the API or rebuild
+Docker after retraining to load the updated weights.
+
+### Files and deployment
+
+- app/gan_model.py: generator and discriminator definitions.
+- app/gan_generator.py: load the generator and return PNG images.
+- train_gan.py: training and checkpoint saving.
+- models/mnist_gan_generator.pt: trained generator weights.
+- models/mnist_gan_discriminator.pt: trained discriminator weights.
+- models/mnist_gan_training.json: training settings and loss history.
+- examples/gan/: generated samples from each epoch and the API.
+
+The Docker instructions above also run the GAN endpoint. Both CNN and GAN
+weights are included in the image, so retraining is not required.
+The API uses CPU inference and evaluation mode.
+
+![Samples after 20 epochs](examples/gan/epoch_020.png)

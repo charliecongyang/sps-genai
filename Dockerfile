@@ -14,7 +14,7 @@ RUN uv sync --locked --no-dev --no-install-project --no-cache
 
 COPY app ./app
 COPY models ./models
-RUN test -s models/cifar10_cnn.pt
+RUN test -s models/cifar10_cnn.pt && test -s models/mnist_gan_generator.pt
 
 EXPOSE 80
 
